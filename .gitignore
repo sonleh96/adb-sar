@@ -191,3 +191,7 @@ calendars/
 provincial_analysis.ipynb
 provincial_analysis_ver2.ipynb
 provincial_analysis_ver3.ipynb
+
+# Local extraction validation and release artifacts
+.task_tmp/
+release_outputs/
