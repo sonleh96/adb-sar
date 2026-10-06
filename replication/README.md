@@ -2,11 +2,14 @@
 
 This package translates the available satellite and environmental extraction code into ordinary Python scripts.
 It covers NDVI, Sentinel-1 RVI, CAMS PM2.5, ERA5-Land temperature and humidity, consumption of preprocessed nighttime lights, and two distinct historical fire workflows.
-Optional modules cover ESI, soil moisture, FPAR, evapotranspiration, JAXA tile definitions, and rice calendar sampling.
+The channel module covers ESI and Aqua FPAR only, as confirmed by Eugenia on 6 October 2026.
+Other helpers prepare JAXA tile definitions and sample rice calendars.
 The code archive contains this README and Python files only.
 
 This is a preparation release, not a verified reproduction of all values in `SAR_SVN_rice_reprod.csv`.
-Nighttime lights preprocessing has not been recovered, the historical PM2.5 and fire sources remain to be confirmed, and live extraction requires renewed Earth Engine authentication and access to the custom inputs.
+The supplied manuscript confirms CAMS PM2.5 and MODIS FIRMS detection-level fire measurements.
+Nighttime lights preprocessing and the detection-level fire construction have not been recovered.
+Live extraction requires renewed Earth Engine authentication and access to the custom inputs.
 There is no Zenodo DOI for this package yet.
 
 Son's contribution ends at the extraction data delivered to Eugenia, including `SAR_SVN_rice_reprod.csv`.
@@ -30,12 +33,13 @@ Cell references below count all notebook cells, starting at one.
 | `extract_ndvi.py` | Monthly rice NDVI mean, minimum, and maximum | `process_datasets.ipynb`, cells 24, 29-30 |
 | `extract_rvi.py` | RVI, with optional additional SAR summaries | `process_datasets.ipynb`, cells 13, 15, 34-35 |
 | `extract_fire.py` | Administrative MODIS FRP statistics or separate FIRMS T21 statistics | `docs/analysis/frp.ipynb`, cells 13-14; `process_datasets.ipynb`, cell 20 |
-| `extract_channels.py` | Optional ESI, ET, soil moisture, and FPAR statistics | `extract_channels.ipynb`, cell 5 |
+| `extract_channels.py` | ESI and Aqua-selected FPAR statistics | `extract_channels.ipynb`, cell 5, restricted to the confirmed paper channels |
 | `prepare_inputs.py` | JAXA raster metadata to subtile bounds | `split_jaxa_tiles.ipynb` |
 | `prepare_fire_distances.py` | Administrative centroid distance to the selected southern Vietnam tile union | `docs/analysis/frp.ipynb`, cells 5-11 |
 | `prepare_calendar.py` | Historical rice harvest calendar raster conversion and coordinate sampling | `extract_channels.ipynb`, cells 30-31, 42-48 |
 | `assemble_outputs.py` | Streaming CSV concatenation and flat fire JSON-to-CSV conversion | Portable helper; fire conversion follows the concatenation in `docs/analysis/frp.ipynb`, cell 17 |
 | `validate_sample.py` | Offline method checks, bounded CSV inspection, and supplied-sample comparison | New validation helper |
+| `validate_channel_graph.py` | Optional offline check of the actual Earth Engine channel graph and QC expression | New validation helper using SDK algorithm metadata |
 | `build_release.py` | Deterministic code-only ZIP and checksum inventory | New packaging helper |
 | `vendor/gee_s1_ard/*.py` | Historical Sentinel-1 filtering and terrain correction | Upstream revision `b50430bd9b2b00e1392532202b88ded6c416932a` |
 
@@ -112,10 +116,9 @@ Confirm it against the final manuscript and historical assembly code before clai
 | `Precipitation_sum` | `rain_cum` | Sum of ERA5-Land daily `total_precipitation_sum`; meters |
 | `Luminosity` | `luminosity` | Preprocessed monthly custom asset `b1`; precise upstream units and transformations require confirmation |
 | `ESI_4wk_mean` | `esi_4wk_mean` | Climate Engine four-week ESI monthly mean |
-| `SM_ROOT_mean` | `sm_root_mean` | SMAP L4 `sm_rootzone` monthly mean; cubic meters per cubic meter |
-| `FPAR_Terra_mean`, `FPAR_Aqua_mean` | `fpar_terra_mean`, `fpar_aqua_mean` | MODIS FPAR, scaled by 0.01, with the historical QC and sensor-bit masks |
-| `MaxFRP_*_*` | To be confirmed | Temporal mean/max or historical minimum alias, followed by spatial mean/max/min; MW |
-| `Mean_T21`, `Max_T21` | To be confirmed | Separate FIRMS T21 brightness-temperature series; kelvin |
+| `FPAR_Aqua_mean` | `fpar_aqua_mean`, then analysis `fpar` | MODIS FPAR, scaled by 0.01, with the historical QC and Aqua sensor-bit masks; the downstream rename needs documentation |
+| `MaxFRP_*_*` | Legacy regional output | Temporal mean/max or historical minimum alias, followed by spatial mean/max/min; MW; not the paper's detection table |
+| `Mean_T21`, `Max_T21` | Legacy country output | Separate FIRMS T21 brightness-temperature series; kelvin; not the paper's detection table |
 
 Relative humidity uses `exp((Td-T)*243.04*17.625 / ((T+243.04)*(Td+243.04)))` with monthly mean `T` and `Td` in degrees Celsius.
 This is not the mean of daily relative humidity.
@@ -126,9 +129,21 @@ NDVI uses `COPERNICUS/S2_HARMONIZED`, which the official catalog identifies as [
 The historical rice branch adds no cloud-quality mask and is preserved here.
 RVI uses Sentinel-1A descending IW scenes with both VV and VH, the actual mono-temporal Lee Sigma filter with kernel 3, and VOLUME terrain flattening using SRTM with zero additional buffer.
 The notebook's unused multi-temporal configuration labels are not used to describe that executed filter.
-Optional channels use SMAP rather than GLDAS; the manuscript source description must be reconciled separately.
+The channel script exports only ESI and Aqua FPAR, each with monthly mean, minimum, and maximum.
+It excludes Terra FPAR, soil moisture, and the unused ET product before sampling, rather than merely hiding their CSV columns.
+Those removed bands can no longer discard otherwise valid ESI/Aqua observations through a joint missing-value mask.
+A fresh export can therefore include coordinates missing from the old 15-band channel stack; equality of sample coverage is not established.
+The historical `sm_root_mean` and `fpar_terra_mean` handoff columns are outside this revised extraction scope.
+
+Aqua FPAR retains the original `MODIS/061/MCD15A3H` combined four-day product and selects pixels with `FparLai_QC` bit 1 equal to 1.
+SCF_QC bits 5-7 must differ from 4, and the `Fpar` scale factor is 0.01.
+This is the Aqua-selected field from the combined product, not the separate MYD15 Aqua product.
+See the [MCD15A3H product and QC definitions](https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD15A3H).
 
 The default sampling is EPSG:4326 at 100 m, with the 10 m class-3 rice mask and Earth Engine's default nearest-neighbor resampling.
+The supplied manuscript's Section 4.7 describes bicubic interpolation, but that operation is absent from the recovered extraction code.
+Provide the missing interpolation step or reconcile the Methods description before publication.
+Changing the resampling now would change the historical calculations; this update preserves the recovered behavior.
 This output grid does not imply that CAMS, ERA5, NTL, or other coarse input products have native 100 m information.
 Sampling drops pixels with a null value in any sampled band.
 The combined covariates stack therefore preserves the original RVI and Sentinel-5P gases even though they extend beyond the seven requested variables.
@@ -145,6 +160,9 @@ Historical mode keeps this alias; the explicitly corrected mode uses `.min()` an
 FRP is scaled by 0.1 as specified for [MOD14A1 MaxFRP](https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MOD14A1).
 The source quality rule retains FireMask low bits at least 7 and QA land/water low bits at most 2.
 FIRMS T21 and MODIS FRP are distinct quantities and must not be treated as interchangeable fire measurements.
+The current paper uses detection-level FRP and brightness temperatures for channels 21/22 and 31, supplied to Stata as `FRP_son.dta` with the `lon-lat-adm1.csv` lookup.
+Neither that point-data construction nor the fire-location admin-1 assignment was found in the reviewed local sources and archives.
+The recovered regional and country extraction scripts cannot replace those inputs or reproduce the current fire instruments.
 
 ## Execution
 
@@ -205,6 +223,7 @@ Its default duplicate check covers only the first 100,000 rows; `--duplicate-che
 
 ```powershell
 python -m replication.validate_sample --self-test
+python -m replication.validate_sample --channel-graph-check --report release_outputs/channels_graph_validation.json
 python -m replication.validate_sample --csv PATH_TO_HANDOFF.csv --rows 1000
 python -m replication.validate_sample --reference historical_sample.csv --candidate new_sample.csv --key Timestamp --key lon --key lat --tolerance NDVI_mean=0.00001 --rows 1000
 python -m replication.validate_sample --frp-json-dir HISTORICAL_IDN_JSON_DIRECTORY --frp-csv HISTORICAL_IDN_FRP.csv --rows 50
@@ -212,6 +231,9 @@ python -m replication.build_release --output release_outputs/adb-sar-extraction-
 ```
 
 Validation is deliberately bounded for large historical CSVs.
+The optional channel graph check requires Earth Engine's installed SDK and its bundled algorithm metadata.
+It builds the actual channel image graph offline, checks its source collections and output bands, and evaluates its serialized QC expression for all 256 byte values.
+It does not authenticate, access custom assets, or compare remote pixel values.
 Use an independently supplied historical sample for value comparisons and explicit keys and tolerances appropriate to the source precision.
 Inspection of the first rows checks only that sample, not complete coverage or the source of each field.
 The delivered CSV contains rounded values, and the exploratory assembly code used reduced precision; exact decimal equality may therefore be inappropriate for comparisons with fresh exports.
@@ -232,17 +254,24 @@ Validation performed on 5 October 2026:
 - Fifty archived Indonesia FRP JSON records matched the archived CSV within `1e-12`; this checks archive consistency, not a new satellite extraction.
 - The first 1,000 handoff CSV rows passed bounded schema, type, missingness, and duplicate-key checks; the CSV has 50 columns and additional rows were not inspected.
 
-Live Earth Engine validation is currently unavailable because the saved credentials return `invalid_grant`; authenticate again before a real tile-month comparison.
+Checks repeated or added on 6 October 2026 include seven offline method tests and the optional channel graph validation.
+The graph contains only the ESI and MCD15A3H source collections and six ESI/Aqua output bands.
+All 256 QC-byte cases matched the documented Aqua rule, with 112 accepted.
+Live Earth Engine validation remains unavailable: a credential refresh on 6 October 2026 returned `invalid_grant`.
+Authenticate again before a real tile-month comparison.
 No cloud export or analysis model has been run during preparation.
 
 ## Outstanding publication requirements
 
-Confirm the latest Methods and data description, exact historical tile subset, CAMS versus GHAP PM2.5 provenance, and the fire measurements used in reported results.
-Recover the Black Marble preprocessing and the exact custom crop mask, including an independent acquisition or rebuild route.
+The supplied manuscript resolves the main PM2.5 source as CAMS and identifies MODIS detection-level fire metrics.
+Confirm the exact historical tile subset, recover the 2017 covariate branch, and document the remaining pre-handoff joins and derived fields.
+Recover the Black Marble preprocessing and the exact custom crop mask, including an independent acquisition or rebuild route, or document accessible frozen inputs and their provenance where appropriate.
+Recover the original FIRMS point-data preparation and GADM 4.1 admin-1 assignment used by the current Stata analysis.
 Obtain a small frozen extraction reference sample and compare a live run once credentials and asset access are restored.
-Clarify which optional channels are required, and reconcile Level-1C versus Level-2A NDVI and SMAP versus GLDAS descriptions.
+Reconcile the bicubic claim in Section 4.7 with the recovered resampling behavior.
 Add the team's code license, manuscript identity, verified release identity, and published DOI once agreed.
-Merge this extraction description with Eugenia's README and analysis files only after access to her existing Zenodo draft is granted.
+The revised combined deposit README is maintained separately at `zenodo/README.md` in GitHub and supplied to Eugenia for upload with the code archive and her analysis files.
+Son does not need editing access to the Zenodo draft for that handoff.
 
 ## Third-party attribution and license
 
