@@ -4,7 +4,7 @@ This package translates the available satellite and environmental extraction cod
 It covers NDVI, Sentinel-1 RVI, CAMS PM2.5, ERA5-Land temperature and humidity, Black Marble nighttime-light preprocessing, and MODIS detection-level fire preparation.
 The channel module covers ESI and Aqua FPAR only, as confirmed by Eugenia on 6 October 2026.
 Other helpers mosaic JAXA crop-map tiles, prepare extraction tile definitions, sample rice calendars, and retain two legacy fire-summary workflows.
-The code archive contains this README and Python files only.
+The code archive contains this README, `requirements.txt`, and Python files.
 
 The author requested bicubic resampling for coarse continuous sources on 6 October 2026.
 That correction changes values relative to earlier nearest-neighbor outputs.
@@ -55,7 +55,7 @@ The new concatenation helper preserves CSV text values rather than reproducing t
 
 ## Environment
 
-Use Python 3.11 or newer.
+Use Python 3.11 for the tested dependency versions in `requirements.txt`.
 Command-line help, extraction dry runs, CSV assembly, basic method checks, and packaging use the standard library.
 The raster, detection, and Earth Engine graph validators also require their corresponding execution dependencies.
 Earth Engine execution additionally needs `earthengine-api`.
@@ -70,13 +70,20 @@ Pin `affine==2.4.0` with this environment: version 3.0.1 failed while reading a 
 Those versions document the checked environment.
 Neither `geemap` nor Jupyter is required.
 
-From a fresh environment, install the optional execution dependencies as needed:
+From the GitHub repository root, install the supported execution dependencies:
 
 ```powershell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install earthengine-api==0.1.401 numpy==1.26.4 xarray==2023.6.0 scipy==1.11.4 rasterio==1.4.3 affine==2.4.0 shapely==2.0.6 pyproj==3.6.1 pandas==2.1.4 h5py==3.9.0
+py -3.11 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install --upgrade pip
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe -m pip check
 ```
+
+The root requirements file delegates to `replication/requirements.txt`.
+For an unzipped extraction archive, use `-r replication/requirements.txt` from the directory containing `replication/` instead.
+On Linux or macOS, create the environment with `python3.11 -m venv .venv` and use `.venv/bin/python` in place of the Windows executable.
+The remaining commands use `python`; use this virtual environment's executable or activate it first.
+Direct dependency versions are pinned; transitive dependencies are resolved by pip rather than a full lockfile.
 
 Keep credentials outside the code directory.
 Authenticate separately using `earthengine authenticate`, select your own registered Google Cloud project, and ensure that account can read every requested custom asset.
@@ -345,7 +352,7 @@ Use an independently supplied historical sample for value comparisons and explic
 Inspection of the first rows checks only that sample, not complete coverage or the source of each field.
 The delivered CSV contains rounded values, and the exploratory assembly code used reduced precision; exact decimal equality may therefore be inappropriate for comparisons with fresh exports.
 
-The release builder packages only Python files and this README, checks the ZIP, and records SHA-256 checksums.
+The release builder packages Python files, this README, and `requirements.txt`, checks the ZIP, and records SHA-256 checksums.
 Keep generated release ZIPs, sample outputs, and reports outside `replication/`, for example under `release_outputs/`.
 Do not package the entire repository, the nested Git dependency, original notebooks, credentials, or the bulk data tree.
 Verify the GitHub commit before supplying the matching ZIP to the existing Zenodo draft.

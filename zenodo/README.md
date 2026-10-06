@@ -14,7 +14,9 @@ The analysis estimates the relationship between PM2.5 exposure and rice crop hea
 
 ## 1. Software requirements
 
-Python extraction uses Python 3.11 and the dependencies in `replication/README.md`.
+Python extraction uses Python 3.11 and the pinned direct dependencies in `replication/requirements.txt`.
+After unzipping the extraction archive, install them with `python -m pip install -r replication/requirements.txt` in a virtual environment from the directory containing `replication/`.
+The setup and data-access instructions are in `replication/README.md`.
 The Python archive does not include the analysis datasets or Stata files.
 The following requirements apply to the Stata contribution.
 
@@ -90,7 +92,7 @@ Eugenia's subsequent construction of the analysis datasets, sample restrictions,
 Concatenating the Python exports alone does not reconstruct that handoff CSV or the final Stata datasets.
 Some pre-handoff joins, identifiers, lags, and derived fields still lack a complete provenance record.
 
-The extraction archive contains `replication/README.md` and Python files only.
+The extraction archive contains `replication/README.md`, `replication/requirements.txt`, and Python files.
 Unzip it beside this README and the analysis files, retaining the `replication/` directory.
 The detailed Python instructions, historical conventions, input requirements, and validation results are in `replication/README.md` and the [GitHub extraction directory](https://github.com/sonleh96/adb-sar/tree/main/replication).
 Original notebooks remain historical source material in GitHub and are excluded from the extraction archive.
@@ -154,7 +156,7 @@ Negative interpolated and unresolved missing values become zero at export, match
 Original granule and EOG mask versions should accompany the data contribution.
 
 **Python execution.**
-Use Python 3.11 and install the execution dependencies listed in `replication/README.md`.
+Use Python 3.11 and install the execution dependencies from `replication/requirements.txt`, following the setup instructions in `replication/README.md`.
 Run the following commands from the directory containing `replication/` to inspect one tile-month without cloud requests:
 
 ```powershell

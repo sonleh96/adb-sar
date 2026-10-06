@@ -1,7 +1,7 @@
 """Build a deterministic code-only ZIP from the replication directory.
 
-Only the root ``README.md`` and Python source files are eligible. Unknown
-files are refused so data, credentials, notebooks, caches, and repository
+Only the root ``README.md``, ``requirements.txt``, and Python source files
+are eligible. Unknown files are refused so data, credentials, notebooks, caches, and repository
 metadata cannot enter the archive through a broad directory copy.
 """
 
@@ -55,6 +55,9 @@ def collect_release_files(source: Path) -> list[Path]:
     readme = source / "README.md"
     if not readme.is_file():
         raise ReleaseError(f"required release README is missing: {readme}")
+    requirements = source / "requirements.txt"
+    if not requirements.is_file():
+        raise ReleaseError(f"required release requirements are missing: {requirements}")
 
     allowed: list[Path] = []
     unexpected: list[Path] = []
@@ -64,7 +67,9 @@ def collect_release_files(source: Path) -> list[Path]:
             continue
         if path.is_symlink():
             unexpected.append(relative)
-        elif path.is_file() and (relative == Path("README.md") or path.suffix == ".py"):
+        elif path.is_file() and (
+            relative in (Path("README.md"), Path("requirements.txt")) or path.suffix == ".py"
+        ):
             allowed.append(relative)
         elif path.is_file():
             unexpected.append(relative)

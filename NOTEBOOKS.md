@@ -32,7 +32,8 @@ Original quirks such as positional resume slices, date bounds, model failures, a
 The original tracked notebooks remain available at [revision 19430e7](https://github.com/sonleh96/adb-sar/tree/19430e7614eeb976451240a9875a2fd81c2c8da5).
 Each retained source cell records its original one-based cell number in metadata.
 Historical cell-number references in the extraction documentation refer to the cited original revisions, not the new annotated positions.
-A byte-preserved local snapshot and SHA-256 inventory were also saved under `release_outputs/notebook-cleanup-2026-10-06/`.
+A local snapshot and SHA-256 inventory were also saved under `release_outputs/notebook-cleanup-2026-10-06/`.
+The snapshot preserves the original notebooks except that embedded OpenWeather credentials have been redacted; its inventory records that redaction and the updated checksums.
 That local snapshot is not part of the GitHub update or the Zenodo code archive.
 
 The two untracked root notebooks and seven ignored analysis notebooks remain outside this cleanup's default scope.
