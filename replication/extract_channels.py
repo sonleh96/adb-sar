@@ -1,10 +1,10 @@
-"""Extract optional drought, ET, soil-moisture, and FPAR channels.
+"""Extract ESI and Aqua FPAR for the manuscript.
 
 Provenance: translated from ``extract_channels.ipynb`` cell 5 (one-based).
-The code preserves the historical ESI 4-week, SSEBop dekadal ET, SMAP L4
-root-zone soil moisture, and MCD15A3H Terra/Aqua FPAR logic, including the
-not-produced SCF_QC exclusion and FPAR scale factor. These optional channels
-reflect the source notebook and should not be described as GLDAS inputs.
+The code preserves the historical ESI 4-week and MCD15A3H Aqua FPAR logic,
+including the not-produced SCF_QC exclusion and FPAR scale factor.
+ET, soil moisture, and Terra FPAR are excluded from the image stack, so their
+masks do not determine which ESI/Aqua samples are retained.
 """
 
 from __future__ import annotations
@@ -30,23 +30,12 @@ from .config import ExtractionConfig
 
 DATASETS = (
     "projects/climate-engine/esi/4wk",
-    "projects/earthengine-legacy/assets/projects/usgs-ssebop/modis_et_v5_dekadal",
-    "NASA/SMAP/SPL4SMGP/007",
     "MODIS/061/MCD15A3H",
 )
 OUTPUT_BANDS = (
     "ESI_4wk_mean",
     "ESI_4wk_min",
     "ESI_4wk_max",
-    "ET_mean",
-    "ET_min",
-    "ET_max",
-    "SM_ROOT_mean",
-    "SM_ROOT_min",
-    "SM_ROOT_max",
-    "FPAR_Terra_mean",
-    "FPAR_Terra_min",
-    "FPAR_Terra_max",
     "FPAR_Aqua_mean",
     "FPAR_Aqua_min",
     "FPAR_Aqua_max",
@@ -62,13 +51,10 @@ def extract_bits_value(value: int, bit_start: int, bit_end: int) -> int:
     return (value >> bit_start) & ((1 << (bit_end - bit_start + 1)) - 1)
 
 
-def fpar_qc_accepts(value: int, sensor: str) -> bool:
-    """Return whether the cell-5 FPAR QC rule accepts a sensor observation."""
+def fpar_qc_accepts(value: int) -> bool:
+    """Check the historical Aqua FPAR QC rule locally without Earth Engine."""
 
-    if sensor not in {"Terra", "Aqua"}:
-        raise ValueError("sensor must be 'Terra' or 'Aqua'")
-    sensor_bit = 0 if sensor == "Terra" else 1
-    return extract_bits_value(value, 5, 7) != 4 and extract_bits_value(value, 1, 1) == sensor_bit
+    return extract_bits_value(value, 5, 7) != 4 and extract_bits_value(value, 1, 1) == 1
 
 
 def _project(image: Any, roi: Any, config: ExtractionConfig) -> Any:
@@ -106,7 +92,7 @@ def build_month_image(
     start: str,
     exclusive_end: str,
 ) -> Any:
-    """Build the optional cell-5 channel stack for one tile-month."""
+    """Build the ESI and Aqua FPAR stack for one tile-month."""
 
     def mask_crop(image: Any) -> Any:
         return image.updateMask(mask)
@@ -118,22 +104,6 @@ def build_month_image(
     )
     esi_stats = _stats(esi, "ESI", "ESI_4wk", roi, config)
 
-    et = (
-        ee.ImageCollection(
-            "projects/earthengine-legacy/assets/projects/usgs-ssebop/modis_et_v5_dekadal"
-        )
-        .filterDate(start, exclusive_end)
-        .map(mask_crop)
-    )
-    et_stats = _stats(et, "et", "ET", roi, config)
-
-    smap = (
-        ee.ImageCollection("NASA/SMAP/SPL4SMGP/007")
-        .filterDate(start, exclusive_end)
-        .map(mask_crop)
-    )
-    soil_stats = _stats(smap, "sm_rootzone", "SM_ROOT", roi, config)
-
     fpar = (
         ee.ImageCollection("MODIS/061/MCD15A3H")
         .filterDate(start, exclusive_end)
@@ -143,22 +113,13 @@ def build_month_image(
     def extract_bits(image: Any, bit_start: int, bit_end: int) -> Any:
         return image.rightShift(bit_start).bitwiseAnd((1 << (bit_end - bit_start + 1)) - 1)
 
-    def mask_sensor(image: Any, sensor_bit: int) -> Any:
+    def mask_aqua(image: Any) -> Any:
         qc = image.select("FparLai_QC")
         scf_qc = extract_bits(qc, 5, 7).neq(4)
-        sensor = extract_bits(qc, 1, 1).eq(sensor_bit)
+        sensor = extract_bits(qc, 1, 1).eq(1)
         return image.updateMask(scf_qc.And(sensor))
 
-    terra = fpar.map(lambda image: mask_sensor(image, 0))
-    aqua = fpar.map(lambda image: mask_sensor(image, 1))
-    terra_stats = _stats(
-        terra,
-        "Fpar",
-        "FPAR_Terra",
-        roi,
-        config,
-        scale_factor=0.01,
-    )
+    aqua = fpar.map(mask_aqua)
     aqua_stats = _stats(
         aqua,
         "Fpar",
@@ -167,7 +128,7 @@ def build_month_image(
         config,
         scale_factor=0.01,
     )
-    return esi_stats.addBands(et_stats).addBands(soil_stats).addBands(terra_stats).addBands(aqua_stats)
+    return esi_stats.addBands(aqua_stats)
 
 
 def submit_exports(
@@ -229,15 +190,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     if not args.submit:
         print_plan(
             plan_dict(
-                "optional-channels",
+                "esi-aqua-fpar",
                 config,
                 tiles,
                 datasets=DATASETS,
                 output_bands=OUTPUT_BANDS,
                 extra={
                     "fpar_scale_factor": 0.01,
-                    "fpar_qc": "SCF_QC bits 5-7 != 4, split by sensor bit 1",
-                    "soil_moisture_source": "SMAP L4 sm_rootzone",
+                    "fpar_qc": "SCF_QC bits 5-7 != 4 and sensor bit 1 == 1 (Aqua)",
+                    "sample_mask": "joint validity of ESI and Aqua FPAR only",
                 },
             )
         )
