@@ -105,7 +105,7 @@ It also removes the unused evapotranspiration export.
 
 | Variable | Source used by the code | Native resolution | Extraction and units |
 |---|---|---|---|
-| Rice areas | JAXA Vietnam land-use and land-cover map, local 2020 rasters labelled `v23.09` | 10 m | Class 3 from band `b1` of the custom `LULC_VN` asset. Exact historical clipping, mosaic, and asset provenance still need confirmation. |
+| Rice areas | [JAXA Vietnam 2020 land-use and land-cover map, v23.09](https://www.eorc.jaxa.jp/ALOS/en/dataset/lulc/lulc_vnm_v2309_e.htm) | 10 m | Author-confirmed mosaicking of the categorical tiles, supplied by `prepare_crop_mask.py`. Upload the mosaic as band `b1`; extraction selects rice class 3. |
 | Harvest calendar | Monsoon Asia Rice Calendar, Zhao et al. 2024, calendar year 2020 | About 55 km | `prepare_calendar.py` converts the Group and Cropping NetCDF files to rasters and samples harvest values at supplied coordinates. The reproductive-stage rule belongs to the later analysis construction and remains to be documented. |
 | NDVI | `COPERNICUS/S2_HARMONIZED`, Sentinel-2 Level-1C | 10 m | `(B8-B4)/(B8+B4)`, monthly mean, minimum, and maximum. The recovered rice branch adds no cloud-quality mask. The candidate handoff field is `NDVI_mean` to `ndvi`. |
 | RVI | `COPERNICUS/S1_GRD_FLOAT`, Sentinel-1A, descending IW, VV and VH | 10 m pixels | Linear-power `4*VH/(VV+VH)`, monthly mean. Mono-temporal Lee Sigma, kernel 3, with VOLUME terrain correction using SRTM. Candidate field: `RVI_mean` to `rvi`. |
@@ -115,7 +115,7 @@ It also removes the unused evapotranspiration export.
 | Temperature | `ECMWF/ERA5_LAND/DAILY_AGGR` | About 11 km | Mean and maximum of the daily mean `temperature_2m` band, minus 273.15, in degrees Celsius. The maximum is not a maximum of daily temperature maxima. |
 | Relative humidity | ERA5-Land temperature and dew point | About 11 km | Magnus expression below, evaluated from monthly mean temperature and monthly mean dew point. Output is a fraction, not a percentage. Candidate field: `Rel_humidity_mean` to `hum_av`. |
 | Rainfall | ERA5-Land `total_precipitation_sum` | About 11 km | Sum across daily precipitation totals, in metres. Candidate field: `Precipitation_sum` to `rain_cum`. |
-| Night lights | Preprocessed monthly VIIRS Black Marble assets `VNM_bm_YYYY_MM` | About 500 m in the source product | Sample band `b1` as `Luminosity`. The original Black Marble product version, cleaning, smoothing, units, and construction of the lag must be recovered or confirmed before claiming full reproduction. |
+| Night lights | Monthly VIIRS Black Marble VNP46A3, prepared as `VNM_bm_YYYY_MM` | About 500 m in the source product | Author-confirmed Python preprocessing from `wb_nightlights_production`, adapted in `prepare_nightlights.py`: quality and land/water filtering, annual EOG lit masks, 0.1 radiance scaling, and linear monthly interpolation with extrapolation. Radiance is in nW/cm2/sr. Construction of the analysis lag remains a later step. |
 
 Relative humidity is `exp((Td-T)*243.04*17.625 / ((T+243.04)*(Td+243.04)))`, with monthly mean temperature `T` and dew point `Td` in degrees Celsius.
 This differs from averaging relative humidity calculated separately for each day.
@@ -125,22 +125,33 @@ The historical Aqua field filters that combined product by the selected sensor b
 It is not an extraction from the separate MYD15 Aqua product.
 Terra FPAR and soil moisture remain columns in the old handoff CSV but are not requested or exported by the revised channel script.
 Removing unused channels also removes their joint validity requirements, so a fresh run can retain coordinates omitted by the original larger stack.
-Historical sample equivalence has not yet been established.
 
 **Spatial and temporal conventions.**
 The scripts request EPSG:4326 at a nominal 100 m scale and use the 10 m rice mask.
 This grid defines sampling locations, not surveyed farm boundaries or new native 100 m information from coarser products.
-The recovered extraction scripts reproject without an explicit interpolation method or area-aggregation reducer.
-[Earth Engine defaults to nearest-neighbour resampling](https://developers.google.com/earth-engine/guides/resample).
-The bicubic description in manuscript Section 4.7 therefore remains unresolved: provide the missing interpolation code or revise that description after author review.
-The Python update preserves the recovered method.
+At Son's request, the revised code explicitly applies bicubic interpolation to the native continuous CAMS, ERA5, Black Marble, ESI, and Aqua FPAR bands before monthly reducers and crop masking.
+FPAR quality flags are evaluated before interpolation; categorical rice classes retain nearest-neighbor handling.
+The original fine-resolution NDVI and RVI handling remains unchanged.
+See the [Earth Engine resampling guide](https://developers.google.com/earth-engine/guides/resample).
+This corrects the earlier nearest-neighbor implementation and can change values and monthly extrema.
+Bicubic values are not clipped to physical ranges by this update.
 
 The default `--date-mode historical` uses the last calendar day as Earth Engine's exclusive end date, omitting observations on that day.
 `--date-mode full-month` uses the first day of the next month and changes the data.
 Historical comparison must use the same convention as the reference sample.
 Sampling drops locations with a null value in any band in the selected stack.
-The recovered combined covariates script also contains Sentinel-5P gases with coverage beginning after 2017.
-That literal branch cannot establish the source of nonempty 2017 handoff rows; the exact historical covariate-generation branch remains to be recovered.
+The historical covariate branch has been recovered from `process_datasets.ipynb` at revision `4b8944d8f86c1b917bdf0f52397540ed9b10e0d8`, cells 117 and 120.
+It explicitly requests 2017 and combines RVI, CAMS PM2.5, ERA5 meteorology, Black Marble, and elevation, excluding Sentinel-5P gases and wind.
+The Python extraction follows that nine-band stack with the requested bicubic correction.
+
+**Nightlights preprocessing.**
+Son identified the Python pipeline in [wb_nightlights_production](https://github.com/sonleh96/wb_nightlights_production/tree/44f0c80ce8ecd89a4cea33f85efe7886c55faae1) as the source.
+Its numerical rules and local input requirements are documented in `replication/README.md`.
+The implementation uses the preceding cleaned December plus the current year's months, interpolating across equally spaced month indices.
+It applies no spatial smoothing or R-script outlier cutoff.
+The adapted driver corrects an off-by-one month export in the recovered source so that January's filename contains January's data.
+Negative interpolated and unresolved missing values become zero at export, matching the Python source.
+Original granule and EOG mask versions should accompany the data contribution.
 
 **Python execution.**
 Use Python 3.11 and install the execution dependencies listed in `replication/README.md`.
@@ -172,15 +183,21 @@ The original `SAR_SVN_rice_reprod.csv` is an intermediate handoff, not a replace
 
 Manuscript Section 4.6 and the analysis README describe MODIS FIRMS detection-level brightness temperatures for channels 21/22 and 31, in kelvin, and fire radiative power, in megawatts.
 File 2 consumes `FRP_son.dta` and the fire-location lookup `lon-lat-adm1.csv` with GADM 4.1 admin-1 identifiers.
-The original point-download, selection, and administrative-assignment code has not been recovered in this repository.
-The exact collection, download dates, geographical bounds, confidence filters, and boundary-assignment rule remain to be supplied with those inputs.
+`prepare_fire_detections.py` reconstructs these inputs from standard science-quality FIRMS MODIS Collection 6.1 Terra and Aqua CSVs and GADM 4.1 admin-1 GeoJSON files.
+It preserves FRP in MW, brightness and T31 in kelvin, and the four-character UTC acquisition time.
+It writes `FRP_son.csv`, optional `FRP_son.dta`, `lon-lat-adm1.csv`, and a manifest of input checksums, selected regions, policies, and counts.
+The default date range is inclusive 2017-01-01 through 2022-12-31, with no confidence, seasonal, or distance filtering.
+Points are assigned using polygon coverage; duplicates, unassigned points, and multiple matches fail unless a different policy is explicitly chosen.
+Myanmar uses the legacy country label `MYM` while its GADM identifiers retain `MMR`.
+The exact historical field names, southern China province subset, and any additional filtering still need reconciliation with Eugenia's input files because the original preparation code was not recovered.
+Execution commands and the [FIRMS archive documentation](https://firms.modaps.eosdis.nasa.gov/download/Readme.txt) are linked in the extraction README.
 
 Two recovered historical fire workflows are provided in `extract_fire.py`:
 
 - MODIS Terra `MODIS/061/MOD14A1` regional monthly FRP summaries, with a 0.1 scale factor and the source fire and land-quality masks.
 - FIRMS T21 country summaries, using a separate raster collection and the original temporal and spatial reducers.
 
-Neither workflow reconstructs the detection-level table with FRP, brightness, and T31 used by the current Stata instruments.
+These two legacy summary workflows are distinct from the new detection-level reconstruction.
 The regional centroid distances from `prepare_fire_distances.py` likewise differ from the fire-to-PM2.5-grid distances described for File 2.
 These legacy outputs must not be substituted for `FRP_son.dta` or `lon-lat-adm1.csv`.
 
@@ -188,17 +205,15 @@ These legacy outputs must not be substituted for `FRP_son.dta` or `lon-lat-adm1.
 
 Local validation covers command-line plans, method checks, bounded archived-data comparisons, and the contents of the Python archive.
 It does not establish full reproduction of the paper.
-On 6 October 2026, the saved Earth Engine credential returned `invalid_grant`; no new cloud extraction was completed.
 The extraction README records each check and its scope.
 
 The remaining items are:
 
-1. Restore Earth Engine authentication and custom-input access, then compare one tile-month with an independent frozen extraction sample.
-2. Recover the Black Marble preprocessing, exact JAXA mask construction, historical tile subset, 2017 covariate branch, and remaining pre-handoff transformations, or document accessible frozen inputs and their provenance where appropriate.
-3. Obtain the detection-level FIRMS preparation and admin-1 lookup code used for the current fire instruments.
-4. Reconcile manuscript Section 4.7 with the actual interpolation method.
-5. Complete the author-owned Stata, figures, sample-definition, software-version, runtime, data-availability, citation, and licence entries in this README.
-6. Eugenia uploads the reviewed README, matching extraction archive, and analysis contribution to her existing Zenodo draft, then adds the published DOI to the manuscript's Methods or Code Availability section.
+1. Confirm the historical extraction tile subset and remaining pre-handoff transformations, and retain the Black Marble granule and EOG mask versions with the data.
+2. Reconcile the reconstructed fire schema, source-region selection, and any additional historical filtering with the analysis inputs.
+3. Ensure the manuscript describes the corrected bicubic method and the recovered nightlights rules, including the corrected month selection.
+4. Complete the author-owned Stata, figures, sample-definition, software-version, runtime, data-availability, citation, and licence entries in this README.
+5. Eugenia uploads the reviewed README, matching extraction archive, and analysis contribution to her existing Zenodo draft, then adds the published DOI to the manuscript's Methods or Code Availability section.
 
 Zenodo editing access for Son is not required for that handoff.
 
@@ -325,6 +340,7 @@ Weak-instrument-robust inference uses the Anderson-Rubin test with wild cluster 
 
 The authors must confirm the licence for their own code before publication.
 The two vendored `gee_s1_ard` Python modules retain their upstream MIT licence and attribution in `replication/README.md` and the source headers.
+The adapted nightlights code retains the MIT licence and attribution from Son's `wb_nightlights_production` repository.
 Data remain subject to the terms of their original sources in Section 4.
 
 ## 8. Citation
