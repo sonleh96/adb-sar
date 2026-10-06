@@ -14,12 +14,14 @@ import io
 import json
 import math
 import re
+import subprocess
 import sys
 import unittest
 from collections.abc import Sequence
 from pathlib import Path
 
 from .common import month_windows
+from .extract_channels import fpar_qc_accepts
 from .extract_covariates import relative_humidity_fraction
 from .extract_fire import fire_pixel_is_valid, frp_min_reducer, scale_frp
 from .extract_rvi import rvi_value
@@ -84,6 +86,38 @@ class OfflineMethodTests(unittest.TestCase):
         self.assertAlmostEqual(scale_frp(123), 12.3)
         self.assertEqual(frp_min_reducer("historical"), "max")
         self.assertEqual(frp_min_reducer("corrected"), "min")
+
+    def test_fpar_qc_retains_only_aqua_and_excludes_not_produced(self) -> None:
+        self.assertTrue(fpar_qc_accepts(2))
+        self.assertFalse(fpar_qc_accepts(0))
+        self.assertFalse(fpar_qc_accepts(130))
+        self.assertTrue(fpar_qc_accepts(98))
+        self.assertTrue(fpar_qc_accepts(31))
+
+    def test_channels_cli_plans_only_requested_products(self) -> None:
+        result = subprocess.run(
+            [
+                sys.executable, "-m", "replication.extract_channels",
+                "--start-month", "2020-02", "--end-month", "2020-03",
+                "--tile-id", "N10E105_0_1", "--dry-run",
+            ],
+            cwd=Path(__file__).resolve().parent.parent,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        plan = json.loads(result.stdout)
+        self.assertEqual(plan["task_count"], 2)
+        self.assertEqual(plan["datasets"], [
+            "projects/climate-engine/esi/4wk", "MODIS/061/MCD15A3H",
+        ])
+        self.assertEqual(plan["output_bands"], [
+            "ESI_4wk_mean", "ESI_4wk_min", "ESI_4wk_max",
+            "FPAR_Aqua_mean", "FPAR_Aqua_min", "FPAR_Aqua_max",
+        ])
+        self.assertEqual(plan["month_windows"][0], {
+            "month": "2020-02", "start": "2020-02-01", "exclusive_end": "2020-02-29",
+        })
 
 
 def run_self_test() -> dict[str, object]:
@@ -452,6 +486,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--self-test", action="store_true", help="run offline formula and date tests")
+    mode.add_argument(
+        "--channel-graph-check",
+        action="store_true",
+        help="check the real ESI/Aqua graph offline; requires Earth Engine SDK test metadata",
+    )
     mode.add_argument("--csv", type=Path, help="inspect a candidate SAR_SVN_rice_reprod.csv")
     mode.add_argument("--reference", type=Path, help="independent reference CSV for comparison")
     mode.add_argument(
@@ -484,7 +523,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     try:
-        if args.self_test:
+        if args.channel_graph_check:
+            if args.candidate or args.frp_csv or args.key or args.tolerance:
+                raise ValidationError("comparison options cannot be used with --channel-graph-check")
+            from .validate_channel_graph import run_channel_graph_check
+
+            report = run_channel_graph_check()
+        elif args.self_test:
             if args.candidate or args.frp_csv or args.key or args.tolerance:
                 raise ValidationError("comparison options cannot be used with --self-test")
             report = run_self_test()
@@ -516,7 +561,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 row_limit=args.rows,
             )
         _emit_report(report, args.report)
-    except (OSError, csv.Error, ValidationError) as exc:
+    except (OSError, csv.Error, ValidationError, RuntimeError) as exc:
         print(f"validation failed: {exc}", file=sys.stderr)
         return 2
     return 0 if report["status"] == "pass" else 1
