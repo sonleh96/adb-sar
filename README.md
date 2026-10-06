@@ -16,5 +16,6 @@ The corrected resampling and nightlights month selection can change values relat
 Exact historical input selections, remaining pre-handoff transformations, and the reconstructed fire schema still require reconciliation with the authors' analysis files.
 The package has not been submitted to Zenodo.
 Original notebooks remain as historical source material; production commands use the Python modules under `replication/`.
+The [research notebook guide](NOTEBOOKS.md) explains the annotated notebooks, their inputs, historical branches, and execution status.
 
 For input data and assistance, contact Son Le at sonle.h96@gmail.com.
