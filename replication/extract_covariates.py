@@ -1,11 +1,11 @@
-"""Extract historical environmental covariates to Google Drive CSV files.
+"""Extract the recovered historical rice covariates to Google Drive CSV files.
 
-Provenance: translated from ``process_datasets.ipynb`` cells 13 and 15
-(one-based). The implementation preserves the literal RVI-first combined stack,
-CAMS NRT PM2.5 scaling, ERA5-Land monthly reducers and fractional Magnus
-relative humidity, Sentinel-5P gases, wind, precipitation, elevation, and the
-private preprocessed monthly Black Marble ``b1`` inputs. It does not reconstruct
-the unavailable Black Marble upstream preprocessing.
+Provenance: ``process_datasets.ipynb`` cell 120 at Git commit 4b8944d8f86c1b917bdf0f52397540ed9b10e0d8,
+before the annotation rewrite reintroduced unused Sentinel-5P and wind bands.
+The RVI-first stack retains CAMS PM2.5 scaling, ERA5-Land monthly reducers,
+fractional Magnus humidity, precipitation, elevation, and monthly Black Marble
+``b1`` inputs. Coarse continuous sources now use bicubic resampling, as
+corrected by the author; historical outputs used nearest-neighbor resampling.
 """
 
 from __future__ import annotations
@@ -22,6 +22,7 @@ from .common import (
     month_windows,
     plan_dict,
     print_plan,
+    project_coarse_continuous,
     resolve_tiles,
     rice_mask,
     sample_with_coordinates,
@@ -34,8 +35,6 @@ from .extract_rvi import build_month_image as build_rvi_month_image
 DATASETS = (
     "COPERNICUS/S1_GRD_FLOAT",
     "ECMWF/CAMS/NRT",
-    "COPERNICUS/S5P/OFFL/L3_NO2",
-    "COPERNICUS/S5P/OFFL/L3_O3",
     "ECMWF/ERA5_LAND/DAILY_AGGR",
     "USGS/SRTMGL1_003",
 )
@@ -43,14 +42,8 @@ OUTPUT_BANDS = (
     "RVI_mean",
     "PM25_mean",
     "PM25_max",
-    "NO2_mean",
-    "NO2_max",
-    "O3_mean",
-    "O3_max",
     "Temperature_mean",
     "Temperature_max",
-    "Wind_speed_mean",
-    "Wind_speed_max",
     "Rel_humidity_mean",
     "Precipitation_sum",
     "Luminosity",
@@ -88,10 +81,10 @@ def build_month_image(
     exclusive_end: str,
     ntl_asset_prefix: str,
 ) -> Any:
-    """Build the cell-15 covariate stack for one tile-month."""
+    """Build the recovered cell-120 stack for one tile-month."""
 
-    def mask_crop(image: Any) -> Any:
-        return image.updateMask(mask)
+    def project_and_mask(image: Any) -> Any:
+        return project_coarse_continuous(image, config).updateMask(mask)
 
     rvi = build_rvi_month_image(
         ee,
@@ -103,7 +96,12 @@ def build_month_image(
         include_sar_stats=False,
     )
 
-    pm25 = ee.ImageCollection("ECMWF/CAMS/NRT").filterDate(start, exclusive_end).map(mask_crop)
+    pm25 = (
+        ee.ImageCollection("ECMWF/CAMS/NRT")
+        .filterDate(start, exclusive_end)
+        .select("particulate_matter_d_less_than_25_um_surface")
+        .map(project_and_mask)
+    )
     pm25_mean = _project(
         pm25.select("particulate_matter_d_less_than_25_um_surface")
         .mean()
@@ -121,36 +119,11 @@ def build_month_image(
         config,
     )
 
-    no2 = (
-        ee.ImageCollection("COPERNICUS/S5P/OFFL/L3_NO2")
-        .filterDate(start, exclusive_end)
-        .map(mask_crop)
-        .filterBounds(roi)
-    )
-    no2_mean = _project(
-        no2.select("NO2_column_number_density").mean().rename("NO2_mean"), roi, config
-    )
-    no2_max = _project(
-        no2.select("NO2_column_number_density").max().rename("NO2_max"), roi, config
-    )
-
-    o3 = (
-        ee.ImageCollection("COPERNICUS/S5P/OFFL/L3_O3")
-        .filterDate(start, exclusive_end)
-        .map(mask_crop)
-        .filterBounds(roi)
-    )
-    o3_mean = _project(
-        o3.select("O3_column_number_density").mean().rename("O3_mean"), roi, config
-    )
-    o3_max = _project(
-        o3.select("O3_column_number_density").max().rename("O3_max"), roi, config
-    )
-
     era5 = (
         ee.ImageCollection("ECMWF/ERA5_LAND/DAILY_AGGR")
         .filterDate(start, exclusive_end)
-        .map(mask_crop)
+        .select(["temperature_2m", "dewpoint_temperature_2m", "total_precipitation_sum"])
+        .map(project_and_mask)
     )
     mean_temp = _project(
         era5.select("temperature_2m").mean().subtract(273.15).rename("Temperature_mean"),
@@ -163,26 +136,6 @@ def build_month_image(
         config,
     )
 
-    mean_wind_u = era5.select("u_component_of_wind_10m").mean()
-    mean_wind_v = era5.select("v_component_of_wind_10m").mean()
-    mean_wind_speed = _project(
-        mean_wind_u.multiply(mean_wind_u)
-        .add(mean_wind_v.multiply(mean_wind_v))
-        .sqrt()
-        .rename("Wind_speed_mean"),
-        roi,
-        config,
-    )
-    max_wind_u = era5.select("u_component_of_wind_10m").max()
-    max_wind_v = era5.select("v_component_of_wind_10m").max()
-    max_wind_speed = _project(
-        max_wind_u.multiply(max_wind_u)
-        .add(max_wind_v.multiply(max_wind_v))
-        .sqrt()
-        .rename("Wind_speed_max"),
-        roi,
-        config,
-    )
     precipitation = _project(
         era5.select("total_precipitation_sum").sum().rename("Precipitation_sum"),
         roi,
@@ -205,7 +158,7 @@ def build_month_image(
 
     ntl_asset = f"{ntl_asset_prefix.rstrip('/')}/VNM_bm_{month.replace('-', '_')}"
     luminosity = _project(
-        ee.Image(ntl_asset).select("b1").rename("Luminosity").updateMask(mask),
+        project_and_mask(ee.Image(ntl_asset).select("b1")).rename("Luminosity"),
         roi,
         config,
     )
@@ -221,14 +174,8 @@ def build_month_image(
     return (
         rvi.addBands(pm25_mean)
         .addBands(pm25_max)
-        .addBands(no2_mean)
-        .addBands(no2_max)
-        .addBands(o3_mean)
-        .addBands(o3_max)
         .addBands(mean_temp)
         .addBands(max_temp)
-        .addBands(mean_wind_speed)
-        .addBands(max_wind_speed)
         .addBands(mean_humidity)
         .addBands(precipitation)
         .addBands(luminosity)
@@ -322,13 +269,11 @@ def main(argv: Sequence[str] | None = None) -> int:
                 extra={
                     "ntl_asset_prefix": ntl_asset_prefix,
                     "sample_drop_nulls": True,
-                    "stack_mode": "literal process_datasets.ipynb cell 15",
+                    "stack_mode": "process_datasets.ipynb cell 120 at 4b8944d8f86c1b917bdf0f52397540ed9b10e0d8, with corrected bicubic upsampling",
                     "limitations": [
                         "The nighttime-light inputs are private preprocessed assets.",
-                        "Their upstream Black Marble preprocessing is not present in the source repository.",
-                        "The literal cell-15 stack includes Sentinel-5P collections whose coverage starts in 2018.",
-                        "Sampling retains Earth Engine's default dropNulls behavior, so early or missing bands can produce no rows.",
-                        "The source review does not establish this literal stack as exact provenance for the delivered CSV.",
+                        "Sampling retains Earth Engine's default dropNulls behavior for the selected covariates.",
+                        "Corrected bicubic resampling changes values relative to historical nearest-neighbor outputs.",
                     ],
                 },
             )

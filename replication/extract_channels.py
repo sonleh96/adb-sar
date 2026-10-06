@@ -20,6 +20,7 @@ from .common import (
     month_windows,
     plan_dict,
     print_plan,
+    project_coarse_continuous,
     resolve_tiles,
     rice_mask,
     sample_with_coordinates,
@@ -94,20 +95,20 @@ def build_month_image(
 ) -> Any:
     """Build the ESI and Aqua FPAR stack for one tile-month."""
 
-    def mask_crop(image: Any) -> Any:
-        return image.updateMask(mask)
+    def project_and_mask(image: Any) -> Any:
+        return project_coarse_continuous(image, config).updateMask(mask)
 
     esi = (
         ee.ImageCollection("projects/climate-engine/esi/4wk")
         .filterDate(start, exclusive_end)
-        .map(mask_crop)
+        .select("ESI")
+        .map(project_and_mask)
     )
     esi_stats = _stats(esi, "ESI", "ESI_4wk", roi, config)
 
     fpar = (
         ee.ImageCollection("MODIS/061/MCD15A3H")
         .filterDate(start, exclusive_end)
-        .map(mask_crop)
     )
 
     def extract_bits(image: Any, bit_start: int, bit_end: int) -> Any:
@@ -119,7 +120,7 @@ def build_month_image(
         sensor = extract_bits(qc, 1, 1).eq(1)
         return image.updateMask(scf_qc.And(sensor))
 
-    aqua = fpar.map(mask_aqua)
+    aqua = fpar.map(mask_aqua).select("Fpar").map(project_and_mask)
     aqua_stats = _stats(
         aqua,
         "Fpar",

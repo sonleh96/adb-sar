@@ -265,6 +265,8 @@ def plan_dict(
         "output_folder": config.output_folder,
         "scale": config.scale,
         "crs": config.crs,
+        "coarse_continuous_resampling": "bicubic on source images before monthly reducers",
+        "categorical_resampling": "nearest neighbor",
     }
     if extra:
         plan.update(extra)
@@ -285,6 +287,16 @@ def rice_mask(ee: Any, asset: str, roi: Any) -> Any:
         .select("b1")
         .eq(3)
     )
+
+
+def project_coarse_continuous(image: Any, config: ExtractionConfig) -> Any:
+    """Upsample native continuous bands before composites or crop masking.
+
+    Earth Engine resampling needs a meaningful native projection. Call this on
+    selected science bands, never a temporal composite or categorical QA band.
+    """
+
+    return image.resample("bicubic").reproject(crs=config.crs, scale=config.scale)
 
 
 def sample_with_coordinates(
