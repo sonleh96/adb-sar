@@ -1,0 +1,2 @@
+# Supported extraction workflow. Notebook experiments have additional dependencies.
+-r replication/requirements.txt
